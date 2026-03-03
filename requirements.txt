@@ -1,0 +1,4 @@
+python-chess>=1.999
+numpy>=1.25
+python-chess
+numpy
