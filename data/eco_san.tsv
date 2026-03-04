@@ -1,0 +1,132 @@
+# ECO Opening Classification - SAN Format
+# Columns: ECO Code, Opening Name, SAN Moves (space-separated)
+#
+# This file is used for opening recognition by longest-prefix matching.
+# The more specific (longer) openings should appear after general ones.
+
+A20	English Opening	c4
+A20	English Opening	c4 e5
+A20	English Opening	c4 e5 Nc3
+A20	English Opening: King's Indian	c4 g6
+A20	English Opening: Sicilian	c4 c5
+
+B20	Sicilian Defence	c5
+B20	Sicilian: Closed	c5 Nc3
+B20	Sicilian: Open	c5 d4
+B20	Sicilian: Open	c5 d4 cxd4
+B20	Sicilian: Open	c5 d4 cxd4 Nf3
+
+C00	French Defence	e6
+C00	French: Closed	e6 e4
+C00	French: Closed	e6 e4 d4
+C00	French: Closed	e6 e4 d4 d5
+C00	French: Petit Variation	e6 e4 e5
+
+C10	French: Paulsen Variation	e6 e4 d4 b6
+C10	French: Rubinstein Variation	e6 e4 d4 dxe4
+C10	French: Schlechter Variation	e6 e4 d4 Be7
+
+C20	Italian Game	e4 e5 Nf3 Nc6 Bc4
+C20	King's Pawn Opening	e4
+C20	King's Pawn: Open Game	e4 e5
+C20	King's Pawn: Open Game	e4 e5 Nc3
+C20	King's Pawn: Open Game	e4 e5 Nc3 Nc6
+C20	Spanish Opening	e4 e5 Nf3
+C20	Spanish: Ruy Lopez	e4 e5 Nf3 Nc6 Bb5
+
+C20	Two Knights Defence	e4 e5 Nf3 Nc6 Bc4 Nf6
+C20	Giuoco Piano	e4 e5 Nf3 Nc6 Bc4 Bc5
+
+C30	Evan's Gambit	e4 e5 Nf3 Nc6 Bc4 Bc5 b4
+C30	King's Gambit Accepted	e4 e5 f4
+C30	King's Gambit Accepted	e4 e5 f4 exf4
+C30	King's Gambit Declined	e4 e5 f4 d5
+C30	King's Gambit Declined	e4 e5 f4 Bc5
+
+C40	Scandinavian Defence	e4 d5
+C40	Scandinavian: Central Variation	e4 d5 exd5 Qxd5
+C40	Scandinavian: 3.Nc3	e4 d5 exd5 Qxd5 Nc3
+
+C41	Philidor's Defence	e4 e5 Nf3 d6
+C42	Russian Defence	e4 e5 Nf3 Nf6
+
+C50	Italian Game: Giuoco Pianissimo	e4 e5 Nf3 Nc6 Bc4 Bc5 d3
+C50	Italian Game: Two Knights	e4 e5 Nf3 Nc6 Bc4 Nf6
+C50	Italian Game: Two Knights Attack	e4 e5 Nf3 Nc6 Bc4 Nf6 Ng5
+
+C60	Ruy Lopez	e4 e5 Nf3 Nc6 Bb5
+C60	Ruy Lopez: Open	e4 e5 Nf3 Nc6 Bb5 a6
+C60	Ruy Lopez: Closed	e4 e5 Nf3 Nc6 Bb5 Bc5
+C60	Ruy Lopez Defence	e4 e5 Nf3 Nc6 Bb5 f6
+
+C62	Ruy Lopez: Old Indian	e4 e5 Nf3 Nc6 Bb5 d6
+C62	Ruy Lopez: Three Knights	e4 e5 Nf3 Nc6 Bb5 Be7
+
+C70	Ruy Lopez: Morphy Defence	e4 e5 Nf3 Nc6 Bb5 a6
+C70	Ruy Lopez: Morphy	e4 e5 Nf3 Nc6 Bb5 a6 Ba4
+C70	Ruy Lopez: Morphy	e4 e5 Nf3 Nc6 Bb5 a6 Ba4 Nf6
+
+C80	Ruy Lopez: Open Variation	e4 e5 Nf3 Nc6 Bb5 a6 Ba4 Nf6 O-O Nxe4
+C80	Ruy Lopez: Open	e4 e5 Nf3 Nc6 Bb5 a6 Ba4 Nf6 O-O Nxe4 d4
+
+C85	Ruy Lopez: Closed Defence	e4 e5 Nf3 Nc6 Bb5 a6 Ba4 Nf6 O-O Be7
+C86	Ruy Lopez: Worrall Attack	e4 e5 Nf3 Nc6 Bb5 a6 Ba4 Nf6 O-O Be7 Re1 b5 Bb3
+
+D00	Queen's Pawn Opening	d4
+D00	Queen's Pawn Openings	d4 d5
+D00	Semi-Closed	d4 e6
+D00	Slav Defence	d4 d5 c4 c6
+
+D10	Slav Defence: Quiet Variation	d4 d5 c4 c6 Nf3
+D10	Slav Defence: Pure Slav	d4 d5 c4 c6 Nf3 Nf6
+D10	Slav Defence	d4 d5 c4 c6 Nc3
+
+D20	Queen's Gambit Accepted	d4 d5 c4 dxc4
+D20	Queen's Gambit Accepted	d4 d5 c4 dxc4 Nc3
+
+D30	Queen's Gambit Declined	d4 d5 c4 e6
+D30	Queen's Gambit Declined	d4 d5 c4 e6 Nc3
+D30	Queen's Gambit Declined	d4 d5 c4 e6 cxd5
+
+D35	Queen's Gambit Declined: Normal Defence	d4 d5 c4 e6 Nc3 Nf6
+D35	Queen's Gambit Declined: Exchange Variation	d4 d5 c4 e6 cxd5
+
+D40	Slav Defence: Main Line	d4 d5 c4 c6 Nc3 Nf6 cxd5
+D40	Slav Defence	d4 d5 c4 c6 Nc3 Nf6 Nf3
+
+D50	Queen's Gambit Declined: 4.Bg5	d4 d5 c4 e6 Nc3 Nf6 Bg5
+D50	Queen's Gambit Declined	d4 d5 c4 e6 Nf3
+
+D60	Queen's Gambit Declined: Orthodox Defence	d4 d5 c4 e6 Nc3 Nf6 Bg5 Be7
+D60	Queen's Gambit Declined: Orthodox	d4 d5 c4 e6 Nc3 Nf6 Bg5 Be7 e3
+
+D80	Grünfeld Defence	d4 Nf6 c4 g6
+D80	Grünfeld Defence	d4 Nf6 c4 g6 Nc3
+
+D90	Grünfeld: Closed Variation	d4 Nf6 c4 g6 Nc3 d5
+
+E00	Closed Opening	d4 d6
+E00	Closed Game	d4 g6
+E00	Closed: Catalan	d4 Nf6 c4 e6 g3
+E00	Closed: Reti	Nf3 d5 c4
+
+E10	Caro-Kann Defence	e4 c6
+E10	Caro-Kann: Anti-Meran	e4 c6 d4 d5 Nc3
+E10	Caro-Kann: Main Line	e4 c6 d4 d5 Nc3 Nf6
+
+E12	Queen's Indian Defence	d4 Nf6 c4 e6 Nf3 b6
+E12	Queen's Indian Defence	d4 Nf6 c4 e6 Nf3 b6 Nc3
+
+E15	Queen's Indian: Main Line	d4 Nf6 c4 e6 g3 b6 Bg2 Bb7
+
+E60	King's Fianchetto Opening	g3
+E60	King's Indian Attack	Nf3 d5 g3
+
+E80	King's Indian Defence	e4 g6
+E80	King's Indian: Classical	e4 g6 d4 Bg7 Nc3
+E80	King's Indian: Classical Main	e4 g6 d4 Bg7 Nc3 d6 Be2
+
+E90	King's Indian: Classical	d4 Nf6 c4 g6 Nc3 Bg7
+E90	King's Indian: Classical	d4 Nf6 c4 g6 Nc3 Bg7 Be2
+
+E95	King's Indian: Classical Main Line	d4 Nf6 c4 g6 Nc3 Bg7 Be2 d6 O-O O-O

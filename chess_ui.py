@@ -1,11 +1,14 @@
-"""Chess UI using Tkinter."""
+"""Chess UI using Tkinter with PNG piece assets and auto-planning."""
 
 import tkinter as tk
 from tkinter import messagebox
 from chess_model import ChessModel
 from eval_material import MaterialEvaluator
+from planning import plan_current_position
 import chess
 import logging
+import os
+from PIL import Image, ImageTk
 
 
 # Set up logging
@@ -18,17 +21,21 @@ logger = logging.getLogger(__name__)
 
 
 class ChessWorkbenchApp:
-    """Tkinter GUI for chess workbench."""
+    """Tkinter GUI for chess workbench with PNG piece assets."""
 
-    # Board rendering
-    SQUARE_SIZE = 60
+    # Board rendering (80x80 squares, 72x72 pieces centered)
+    SQUARE_SIZE = 80
+    PIECE_SIZE = 72
+    PIECE_OFFSET = (SQUARE_SIZE - PIECE_SIZE) // 2  # 4px padding
     BOARD_SIZE = 8
+    
     LIGHT_COLOR = "#f0d9b5"
     DARK_COLOR = "#b58863"
     HIGHLIGHT_COLOR = "#baca44"
-    LEGAL_MOVE_COLOR = "#7fc97f"
+    LEGAL_MOVE_DOT_COLOR = "#5b5b5b"
+    LAST_MOVE_COLOR = "#baca4460"  # Semi-transparent (won't work in tkinter, fallback to solid)
 
-    # Unicode pieces: positive=white, negative=black
+    # Unicode pieces fallback
     PIECES = {
         1: "♙", -1: "♟",
         2: "♘", -2: "♞",
@@ -42,84 +49,224 @@ class ChessWorkbenchApp:
         """Initialize the UI."""
         self.root = root
         self.root.title("Before You Move - Chess Workbench")
-        self.root.geometry("1200x800")
+        self.root.geometry("1600x800")
 
         self.model = ChessModel()
         self.evaluator = MaterialEvaluator()
         
         self.selected_square = None
         self.legal_destinations = set()
+        self.current_plans = []  # Store generated plans
+        
+        # Asset loading
+        self.piece_images = {}  # Cached PhotoImage objects
+        self.use_unicode = False
+        self._load_piece_assets()
 
         self._create_ui()
         self._refresh_all()
         
         logger.info("Application started")
 
-    def _create_ui(self) -> None:
-        """Build the UI layout."""
-        main_frame = tk.Frame(self.root)
-        main_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+    def _load_piece_assets(self) -> None:
+        """Load PNG piece assets. Falls back to unicode if missing."""
+        piece_files = {
+            (chess.PAWN, chess.WHITE): "assets/white/white-pawn.png",
+            (chess.KNIGHT, chess.WHITE): "assets/white/white-knight.png",
+            (chess.BISHOP, chess.WHITE): "assets/white/white-bishop.png",
+            (chess.ROOK, chess.WHITE): "assets/white/white-rook.png",
+            (chess.QUEEN, chess.WHITE): "assets/white/white-queen.png",
+            (chess.KING, chess.WHITE): "assets/white/white-king.png",
+            (chess.PAWN, chess.BLACK): "assets/black/black-pawn.png",
+            (chess.KNIGHT, chess.BLACK): "assets/black/black-knight.png",
+            (chess.BISHOP, chess.BLACK): "assets/black/black-bishop.png",
+            (chess.ROOK, chess.BLACK): "assets/black/black-rook.png",
+            (chess.QUEEN, chess.BLACK): "assets/black/black-queen.png",
+            (chess.KING, chess.BLACK): "assets/black/black-king.png",
+        }
 
-        # -- LEFT: Board --
-        board_frame = tk.Frame(main_frame)
-        board_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5)
+        all_loaded = True
+        for (piece_type, color), filepath in piece_files.items():
+            if os.path.exists(filepath):
+                try:
+                    img = Image.open(filepath).convert("RGBA")
+                    # Verify size (should be 72x72)
+                    if img.size != (72, 72):
+                        logger.warning(f"Piece {filepath} is {img.size}, expected 72x72")
+                    photo = ImageTk.PhotoImage(img)
+                    self.piece_images[(piece_type, color)] = photo
+                except Exception as e:
+                    logger.warning(f"Failed to load {filepath}: {e}")
+                    all_loaded = False
+            else:
+                logger.warning(f"Piece asset not found: {filepath}")
+                all_loaded = False
+
+        if not all_loaded:
+            logger.info("Using unicode pieces as fallback")
+            self.use_unicode = True
+
+    def _create_ui(self) -> None:
+        """Build the UI layout with board, controls, and planning panels."""
+        main_frame = tk.Frame(self.root, bg="white")
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
+
+        # -- SECTION 1: Board + Move Controls (Left) --
+        left_frame = tk.Frame(main_frame)
+        left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=False, padx=5)
+
+        # Board
+        board_frame = tk.Frame(left_frame, bg="white")
+        board_frame.pack(side=tk.TOP, fill=tk.BOTH, padx=5)
+
+        tk.Label(board_frame, text="Chess Board", font=("Arial", 12, "bold"), bg="white").pack(anchor=tk.W, pady=(0, 5))
 
         self.canvas = tk.Canvas(
             board_frame,
             width=self.SQUARE_SIZE * self.BOARD_SIZE,
             height=self.SQUARE_SIZE * self.BOARD_SIZE,
             bg="gray20",
+            highlightthickness=0,
         )
-        self.canvas.pack()
+        self.canvas.pack(padx=5, pady=5)
         self.canvas.bind("<Button-1>", self._on_canvas_click)
 
-        # -- RIGHT: Controls & Info --
-        right_frame = tk.Frame(main_frame)
-        right_frame.pack(side=tk.LEFT, fill=tk.BOTH, padx=5)
+        # Move controls (below board)
+        controls_frame = tk.Frame(left_frame, bg="white")
+        controls_frame.pack(side=tk.TOP, fill=tk.BOTH, padx=5, pady=(10, 0))
 
         # FEN section
-        tk.Label(right_frame, text="FEN", font=("Arial", 10, "bold")).pack(anchor=tk.W, pady=(5, 2))
-        self.fen_input = tk.Entry(right_frame, width=50)
+        tk.Label(controls_frame, text="FEN", font=("Arial", 10, "bold"), bg="white").pack(anchor=tk.W, pady=(5, 2))
+        self.fen_input = tk.Entry(controls_frame, width=45)
         self.fen_input.pack(anchor=tk.W, pady=(0, 5))
 
-        button_frame = tk.Frame(right_frame)
-        button_frame.pack(anchor=tk.W, pady=(0, 10))
-        tk.Button(button_frame, text="Load FEN", command=self._load_fen).pack(side=tk.LEFT, padx=2)
-        tk.Button(button_frame, text="Copy FEN", command=self._copy_fen).pack(side=tk.LEFT, padx=2)
+        button_frame = tk.Frame(controls_frame, bg="white")
+        button_frame.pack(anchor=tk.W, pady=(0, 5))
+        tk.Button(button_frame, text="Load FEN", command=self._load_fen, width=10).pack(side=tk.LEFT, padx=2)
+        tk.Button(button_frame, text="Copy FEN", command=self._copy_fen, width=10).pack(side=tk.LEFT, padx=2)
 
         # Move section
-        tk.Label(right_frame, text="Make Move (UCI/SAN)", font=("Arial", 10, "bold")).pack(anchor=tk.W, pady=(10, 2))
-        self.move_input = tk.Entry(right_frame, width=30)
+        tk.Label(controls_frame, text="Make Move (SAN/UCI)", font=("Arial", 10, "bold"), bg="white").pack(anchor=tk.W, pady=(5, 2))
+        self.move_input = tk.Entry(controls_frame, width=20)
         self.move_input.pack(anchor=tk.W, pady=(0, 5))
         self.move_input.bind("<Return>", lambda e: self._play_move_from_input())
 
-        tk.Button(right_frame, text="Play Move", command=self._play_move_from_input).pack(anchor=tk.W, pady=(0, 10))
+        tk.Button(controls_frame, text="Play Move", command=self._play_move_from_input).pack(anchor=tk.W, pady=(0, 10))
 
         # Control buttons
-        control_frame = tk.Frame(right_frame)
-        control_frame.pack(anchor=tk.W, pady=(10, 10))
-        tk.Button(control_frame, text="Undo", command=self._undo, width=8).pack(side=tk.LEFT, padx=2)
-        tk.Button(control_frame, text="Reset", command=self._reset, width=8).pack(side=tk.LEFT, padx=2)
+        control_btn_frame = tk.Frame(controls_frame, bg="white")
+        control_btn_frame.pack(anchor=tk.W, pady=(5, 10))
+        tk.Button(control_btn_frame, text="Undo", command=self._undo, width=8).pack(side=tk.LEFT, padx=2)
+        tk.Button(control_btn_frame, text="Reset", command=self._reset, width=8).pack(side=tk.LEFT, padx=2)
 
-        # Status section
-        tk.Label(right_frame, text="Position Status", font=("Arial", 10, "bold")).pack(anchor=tk.W, pady=(10, 5))
-        self.status_label = tk.Label(right_frame, text="", justify=tk.LEFT, font=("Courier", 9))
-        self.status_label.pack(anchor=tk.NW)
+        # -- SECTION 2: Info Panels (Right - Upper) --
+        right_frame = tk.Frame(main_frame)
+        right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=5)
 
-        # Evaluation section
-        tk.Label(right_frame, text="Evaluation", font=("Arial", 10, "bold")).pack(anchor=tk.W, pady=(10, 5))
-        self.eval_label = tk.Label(right_frame, text="", font=("Courier", 9))
-        self.eval_label.pack(anchor=tk.W)
+        # Info upper (opening, status, eval, history)
+        info_frame = tk.Frame(right_frame)
+        info_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=False, padx=5)
+
+        tk.Label(info_frame, text="Opening", font=("Arial", 10, "bold")).pack(anchor=tk.W, pady=(5, 2))
+        self.opening_label = tk.Label(info_frame, text="(unknown)", font=("Courier", 9), fg="#555")
+        self.opening_label.pack(anchor=tk.W, pady=(0, 10))
+
+        tk.Label(info_frame, text="Move History (PGN)", font=("Arial", 10, "bold")).pack(anchor=tk.W, pady=(5, 2))
+        self.history_label = tk.Label(info_frame, text="", font=("Courier", 8), justify=tk.LEFT, wraplength=220)
+        self.history_label.pack(anchor=tk.NW, pady=(0, 10))
+
+        tk.Label(info_frame, text="Position Status", font=("Arial", 10, "bold")).pack(anchor=tk.W, pady=(5, 2))
+        self.status_label = tk.Label(info_frame, text="", justify=tk.LEFT, font=("Courier", 9))
+        self.status_label.pack(anchor=tk.NW, pady=(0, 10))
+
+        tk.Label(info_frame, text="Material Evaluation", font=("Arial", 10, "bold")).pack(anchor=tk.W, pady=(5, 2))
+        self.eval_label = tk.Label(info_frame, text="", font=("Courier", 10, "bold"))
+        self.eval_label.pack(anchor=tk.W, pady=(0, 10))
 
         # Legal moves section
-        tk.Label(right_frame, text="Legal Moves (UCI)", font=("Arial", 10, "bold")).pack(anchor=tk.W, pady=(10, 5))
+        tk.Label(info_frame, text="Legal Moves (SAN)", font=("Arial", 10, "bold")).pack(anchor=tk.W, pady=(5, 2))
         
-        moves_scroll = tk.Scrollbar(right_frame)
+        moves_scroll = tk.Scrollbar(info_frame)
         moves_scroll.pack(side=tk.RIGHT, fill=tk.Y)
 
-        self.moves_listbox = tk.Listbox(right_frame, height=15, width=30, yscrollcommand=moves_scroll.set)
+        self.moves_listbox = tk.Listbox(info_frame, height=8, width=22, yscrollcommand=moves_scroll.set, font=("Courier", 8))
         self.moves_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         moves_scroll.config(command=self.moves_listbox.yview)
+
+        # -- SECTION 3: Planning Panel (Right - Lower) --
+        planning_frame = tk.Frame(right_frame, relief=tk.SUNKEN, bd=1)
+        planning_frame.pack(side=tk.BOTTOM, fill=tk.BOTH, expand=True, padx=5, pady=(10, 0))
+
+        tk.Label(planning_frame, text="PLANNING (Automated)", font=("Arial", 10, "bold")).pack(anchor=tk.W, pady=(5, 5), padx=5)
+
+        # Planning controls
+        controls_subframe = tk.Frame(planning_frame)
+        controls_subframe.pack(anchor=tk.W, fill=tk.X, padx=5, pady=5)
+
+        # Depth
+        tk.Label(controls_subframe, text="Depth (ply):", font=("Arial", 9)).pack(side=tk.LEFT, padx=(0, 5))
+        self.depth_spinbox = tk.Spinbox(controls_subframe, from_=1, to=6, width=3, font=("Arial", 9))
+        self.depth_spinbox.delete(0, tk.END)
+        self.depth_spinbox.insert(0, "4")
+        self.depth_spinbox.pack(side=tk.LEFT, padx=(0, 15))
+
+        # Top K
+        tk.Label(controls_subframe, text="Top K:", font=("Arial", 9)).pack(side=tk.LEFT, padx=(0, 5))
+        self.topk_spinbox = tk.Spinbox(controls_subframe, from_=1, to=20, width=3, font=("Arial", 9))
+        self.topk_spinbox.delete(0, tk.END)
+        self.topk_spinbox.insert(0, "5")
+        self.topk_spinbox.pack(side=tk.LEFT, padx=(0, 15))
+
+        branching_subframe = tk.Frame(planning_frame)
+        branching_subframe.pack(anchor=tk.W, fill=tk.X, padx=5, pady=5)
+
+        # Our branching
+        tk.Label(branching_subframe, text="Our Branch:", font=("Arial", 9)).pack(side=tk.LEFT, padx=(0, 5))
+        self.our_branch_spinbox = tk.Spinbox(branching_subframe, from_=1, to=20, width=3, font=("Arial", 9))
+        self.our_branch_spinbox.delete(0, tk.END)
+        self.our_branch_spinbox.insert(0, "6")
+        self.our_branch_spinbox.pack(side=tk.LEFT, padx=(0, 15))
+
+        # Opp branching
+        tk.Label(branching_subframe, text="Opp Branch:", font=("Arial", 9)).pack(side=tk.LEFT, padx=(0, 5))
+        self.opp_branch_spinbox = tk.Spinbox(branching_subframe, from_=1, to=20, width=3, font=("Arial", 9))
+        self.opp_branch_spinbox.delete(0, tk.END)
+        self.opp_branch_spinbox.insert(0, "4")
+        self.opp_branch_spinbox.pack(side=tk.LEFT, padx=(0, 0))
+
+        # Generate Plans button
+        tk.Button(
+            planning_frame,
+            text="Generate Plans",
+            command=self._generate_plans,
+            font=("Arial", 10, "bold"),
+            bg="#4CAF50",
+            fg="white",
+            width=20,
+        ).pack(anchor=tk.W, padx=5, pady=5)
+
+        # Plans listbox
+        plans_scroll = tk.Scrollbar(planning_frame)
+        plans_scroll.pack(side=tk.RIGHT, fill=tk.Y, padx=(0, 5))
+
+        self.plans_listbox = tk.Listbox(
+            planning_frame,
+            height=10,
+            width=25,
+            yscrollcommand=plans_scroll.set,
+            font=("Courier", 8),
+        )
+        self.plans_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5, pady=(0, 5))
+        self.plans_listbox.bind("<<ListboxSelect>>", self._on_plan_selected)
+        plans_scroll.config(command=self.plans_listbox.yview)
+
+        # Plan preview section
+        preview_frame = tk.Frame(planning_frame)
+        preview_frame.pack(anchor=tk.W, fill=tk.X, padx=5, pady=(5, 5))
+
+        tk.Label(preview_frame, text="Plan Preview:", font=("Arial", 9, "bold")).pack(anchor=tk.W)
+        self.preview_label = tk.Label(preview_frame, text="", font=("Courier", 8), justify=tk.LEFT)
+        self.preview_label.pack(anchor=tk.NW)
 
     def _on_canvas_click(self, event: tk.Event) -> None:
         """Handle click on board canvas."""
@@ -163,8 +310,9 @@ class ChessWorkbenchApp:
                     # Promotion -- default to queen
                     move_uci += "q"
 
-            if self.model.make_move(move_uci):
-                logger.info(f"Move played: {move_uci}")
+            result = self.model.try_push_move(move_uci)
+            if result:
+                logger.info(f"Move played: {result}")
                 self.move_input.delete(0, tk.END)
                 self.selected_square = None
                 self.legal_destinations = set()
@@ -175,14 +323,15 @@ class ChessWorkbenchApp:
             messagebox.showwarning("Invalid", f"Cannot move to {chess.square_name(square)}")
 
     def _play_move_from_input(self) -> None:
-        """Play move from text input."""
+        """Play move from text input (SAN preferred, UCI fallback)."""
         move_str = self.move_input.get().strip()
         if not move_str:
-            messagebox.showwarning("Input", "Enter a move (e.g., e2e4 or Nf3)")
+            messagebox.showwarning("Input", "Enter a move (e.g., e4, Nf3, or e2e4)")
             return
 
-        if self.model.make_move(move_str):
-            logger.info(f"Move played: {move_str}")
+        result = self.model.try_push_move(move_str)
+        if result:
+            logger.info(f"Move played: {result}")
             self.move_input.delete(0, tk.END)
             self.selected_square = None
             self.legal_destinations = set()
@@ -216,7 +365,7 @@ class ChessWorkbenchApp:
 
     def _undo(self) -> None:
         """Undo last move."""
-        if self.model.undo_move():
+        if self.model.pop_move():
             logger.info("Move undone")
             self.selected_square = None
             self.legal_destinations = set()
@@ -232,18 +381,93 @@ class ChessWorkbenchApp:
         self.legal_destinations = set()
         self._refresh_all()
 
+    def _generate_plans(self) -> None:
+        """Generate plans using the planner."""
+        try:
+            depth = int(self.depth_spinbox.get())
+            topk = int(self.topk_spinbox.get())
+            our_branch = int(self.our_branch_spinbox.get())
+            opp_branch = int(self.opp_branch_spinbox.get())
+
+            logger.info(
+                f"Planning: depth={depth}, topk={topk}, our_branch={our_branch}, opp_branch={opp_branch}"
+            )
+
+            # Generate plans
+            self.current_plans = plan_current_position(
+                self.model.board,
+                self.evaluator,
+                depth=depth,
+                our_branching=our_branch,
+                opp_branching=opp_branch,
+                top_k=topk,
+            )
+
+            # Populate listbox
+            self.plans_listbox.delete(0, tk.END)
+            for plan in self.current_plans:
+                display_text = f"{plan.rank}. {plan.san_line} | leaf={plan.leaf_eval:+.0f} | Δ={plan.delta:+.0f}"
+                self.plans_listbox.insert(tk.END, display_text)
+
+            logger.info(f"Generated {len(self.current_plans)} plans")
+
+            # Clear preview
+            self.preview_label.config(text="")
+
+        except ValueError as e:
+            messagebox.showerror("Input Error", f"Invalid planning parameters: {e}")
+        except Exception as e:
+            messagebox.showerror("Planning Error", f"Planning failed: {e}")
+            logger.error(f"Planning error: {e}")
+
+    def _on_plan_selected(self, event: tk.Event) -> None:
+        """Handle plan selection in listbox."""
+        selection = self.plans_listbox.curselection()
+        if not selection:
+            return
+
+        idx = selection[0]
+        if idx >= len(self.current_plans):
+            return
+
+        plan = self.current_plans[idx]
+
+        # Preview the plan: make a copy of the board and play all moves
+        preview_board = self.model.board.copy(stack=True)
+
+        try:
+            for uci_move in plan.uci_line:
+                move = chess.Move.from_uci(uci_move)
+                preview_board.push(move)
+
+            # Show preview
+            preview_text = f"Plan {plan.rank}: {plan.san_line}\n"
+            preview_text += f"Resulting FEN:\n{plan.leaf_fen}\n"
+            preview_text += f"Leaf Eval: {plan.leaf_eval:+.0f} cp | Delta: {plan.delta:+.0f} cp"
+
+            self.preview_label.config(text=preview_text)
+
+        except Exception as e:
+            logger.error(f"Error previewing plan: {e}")
+            self.preview_label.config(text=f"Error: {e}")
+
     def _refresh_all(self) -> None:
-        """Refresh board, status, evals, and moves list."""
+        """Refresh all UI elements."""
         self._refresh_board()
         self._refresh_status()
         self._refresh_eval()
         self._refresh_moves()
+        self._refresh_history()
+        self._refresh_opening()
         self.fen_input.delete(0, tk.END)
         self.fen_input.insert(0, self.model.get_board_fen())
 
     def _refresh_board(self) -> None:
-        """Redraw the chess board."""
+        """Redraw the chess board with PNG assets or unicode fallback."""
         self.canvas.delete("all")
+
+        # Get last move squares for highlighting
+        last_from, last_to = self.model.get_last_move_squares()
 
         # Draw squares and pieces
         for row in range(self.BOARD_SIZE):
@@ -259,63 +483,90 @@ class ChessWorkbenchApp:
                 is_light = (row + col) % 2 == 0
                 color = self.LIGHT_COLOR if is_light else self.DARK_COLOR
 
+                # Last move squares (subtle overlay)
+                if square == last_from or square == last_to:
+                    color = "#d4af37" if is_light else "#9d8b52"  # Subtle gold tint
+
+                # Selected square (bright border)
                 if square == self.selected_square:
                     color = self.HIGHLIGHT_COLOR
-                elif square in self.legal_destinations:
-                    color = self.LEGAL_MOVE_COLOR
 
                 # Draw square
-                self.canvas.create_rectangle(x1, y1, x2, y2, fill=color, outline="gray")
+                self.canvas.create_rectangle(x1, y1, x2, y2, fill=color, outline="")
 
                 # Draw piece
                 piece = self.model.get_piece_at(square)
                 if piece:
-                    symbol = self.PIECES.get(
-                        piece.piece_type if piece.color else -piece.piece_type
-                    )
-                    fg = "white" if piece.color else "black"
-                    self.canvas.create_text(
-                        x1 + self.SQUARE_SIZE // 2,
-                        y1 + self.SQUARE_SIZE // 2,
-                        text=symbol,
-                        font=("Arial", 40, "bold"),
-                        fill=fg,
+                    if self.use_unicode:
+                        # Unicode fallback
+                        symbol = self.PIECES.get(
+                            piece.piece_type if piece.color else -piece.piece_type
+                        )
+                        fg = "white" if piece.color else "black"
+                        self.canvas.create_text(
+                            x1 + self.SQUARE_SIZE // 2,
+                            y1 + self.SQUARE_SIZE // 2,
+                            text=symbol,
+                            font=("Arial", 48, "bold"),
+                            fill=fg,
+                        )
+                    else:
+                        # PNG asset
+                        photo = self.piece_images.get((piece.piece_type, piece.color))
+                        if photo:
+                            self.canvas.create_image(
+                                x1 + self.PIECE_OFFSET,
+                                y1 + self.PIECE_OFFSET,
+                                image=photo,
+                                anchor=tk.NW,
+                            )
+
+                # Draw legal destination dot
+                if square in self.legal_destinations:
+                    cx = x1 + self.SQUARE_SIZE // 2
+                    cy = y1 + self.SQUARE_SIZE // 2
+                    dot_size = 8
+                    self.canvas.create_oval(
+                        cx - dot_size, cy - dot_size,
+                        cx + dot_size, cy + dot_size,
+                        fill=self.LEGAL_MOVE_DOT_COLOR,
+                        outline=""
                     )
 
-        # Draw coordinates
+        # Draw board coordinates
         for i in range(self.BOARD_SIZE):
             file_char = chr(ord("a") + i)
             self.canvas.create_text(
                 i * self.SQUARE_SIZE + self.SQUARE_SIZE // 2,
-                self.SQUARE_SIZE * self.BOARD_SIZE + 10,
+                self.SQUARE_SIZE * self.BOARD_SIZE + 12,
                 text=file_char,
-                font=("Arial", 12),
-                fill="white",
+                font=("Arial", 11, "bold"),
+                fill="#666",
             )
             rank_char = str(8 - i)
             self.canvas.create_text(
-                -15,
+                -12,
                 i * self.SQUARE_SIZE + self.SQUARE_SIZE // 2,
                 text=rank_char,
-                font=("Arial", 12),
-                fill="white",
+                font=("Arial", 11, "bold"),
+                fill="#666",
             )
 
     def _refresh_status(self) -> None:
         """Update status label."""
         info = self.model.get_position_info()
         side = info["side_to_move"]
-        last_move = self.model.get_last_move_uci()
+        last_move = self.model.get_last_move_san()
 
         status_text = f"Side to Move: {side}\n"
         status_text += f"Last Move: {last_move if last_move else '(none)'}\n"
 
         if info["is_checkmate"]:
-            status_text += "Status: CHECKMATE"
+            status_text += "Status: ♔ CHECKMATE ♔"
         elif info["is_stalemate"]:
             status_text += "Status: STALEMATE"
         elif info["in_check"]:
-            status_text += "Status: CHECK"
+            status_text += "Status: ⚠ CHECK ⚠"
         else:
             status_text += "Status: Playing"
 
@@ -324,14 +575,29 @@ class ChessWorkbenchApp:
     def _refresh_eval(self) -> None:
         """Update evaluation label."""
         score = self.evaluator.evaluate(self.model.board)
-        self.eval_label.config(text=f"Material: {score:+.0f} cp")
+        if score > 0:
+            self.eval_label.config(text=f"White +{score:.0f} cp", fg="#387e3f")
+        elif score < 0:
+            self.eval_label.config(text=f"Black +{-score:.0f} cp", fg="#387e3f")
+        else:
+            self.eval_label.config(text="Balanced", fg="#555")
 
     def _refresh_moves(self) -> None:
-        """Update legal moves listbox."""
+        """Update legal moves listbox (SAN)."""
         self.moves_listbox.delete(0, tk.END)
-        moves = self.model.get_legal_moves_uci()
+        moves = self.model.get_legal_moves_san()
         for move in moves:
             self.moves_listbox.insert(tk.END, move)
+
+    def _refresh_history(self) -> None:
+        """Update move history display (PGN format)."""
+        pgn = self.model.get_move_history_pgn()
+        self.history_label.config(text=pgn if pgn else "(no moves)")
+
+    def _refresh_opening(self) -> None:
+        """Update opening display."""
+        opening = self.model.get_opening()
+        self.opening_label.config(text=opening)
 
 
 def main():
