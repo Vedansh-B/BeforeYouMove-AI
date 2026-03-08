@@ -5,9 +5,11 @@ from tkinter import messagebox
 from chess_model import ChessModel
 from eval_material import MaterialEvaluator
 from planning import plan_current_position
+from probabilistic import estimate_first_move_successes
 import chess
 import logging
 import os
+import time
 from PIL import Image, ImageTk
 
 
@@ -57,6 +59,7 @@ class ChessWorkbenchApp:
         self.selected_square = None
         self.legal_destinations = set()
         self.current_plans = []  # Store generated plans
+        self.current_prob_results = []  # Store probabilistic first-move results
         
         # Asset loading
         self.piece_images = {}  # Cached PhotoImage objects
@@ -119,7 +122,7 @@ class ChessWorkbenchApp:
         board_frame = tk.Frame(left_frame, bg="white")
         board_frame.pack(side=tk.TOP, fill=tk.BOTH, padx=5)
 
-        tk.Label(board_frame, text="Chess Board", font=("Arial", 12, "bold"), bg="white").pack(anchor=tk.W, pady=(0, 5))
+        tk.Label(board_frame, text="Chess Board", font=("Times New Roman", 12, "bold"), bg="white").pack(anchor=tk.W, pady=(0, 5))
 
         self.canvas = tk.Canvas(
             board_frame,
@@ -136,7 +139,7 @@ class ChessWorkbenchApp:
         controls_frame.pack(side=tk.TOP, fill=tk.BOTH, padx=5, pady=(10, 0))
 
         # FEN section
-        tk.Label(controls_frame, text="FEN", font=("Arial", 10, "bold"), bg="white").pack(anchor=tk.W, pady=(5, 2))
+        tk.Label(controls_frame, text="FEN", font=("Times New Roman", 10, "bold"), bg="white").pack(anchor=tk.W, pady=(5, 2))
         self.fen_input = tk.Entry(controls_frame, width=45)
         self.fen_input.pack(anchor=tk.W, pady=(0, 5))
 
@@ -146,7 +149,7 @@ class ChessWorkbenchApp:
         tk.Button(button_frame, text="Copy FEN", command=self._copy_fen, width=10).pack(side=tk.LEFT, padx=2)
 
         # Move section
-        tk.Label(controls_frame, text="Make Move (SAN/UCI)", font=("Arial", 10, "bold"), bg="white").pack(anchor=tk.W, pady=(5, 2))
+        tk.Label(controls_frame, text="Make Move (SAN/UCI)", font=("Times New Roman", 10, "bold"), bg="white").pack(anchor=tk.W, pady=(5, 2))
         self.move_input = tk.Entry(controls_frame, width=20)
         self.move_input.pack(anchor=tk.W, pady=(0, 5))
         self.move_input.bind("<Return>", lambda e: self._play_move_from_input())
@@ -167,24 +170,24 @@ class ChessWorkbenchApp:
         info_frame = tk.Frame(right_frame)
         info_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=False, padx=5)
 
-        tk.Label(info_frame, text="Opening", font=("Arial", 10, "bold")).pack(anchor=tk.W, pady=(5, 2))
+        tk.Label(info_frame, text="Opening", font=("Times New Roman", 10, "bold")).pack(anchor=tk.W, pady=(5, 2))
         self.opening_label = tk.Label(info_frame, text="(unknown)", font=("Courier", 9), fg="#555")
         self.opening_label.pack(anchor=tk.W, pady=(0, 10))
 
-        tk.Label(info_frame, text="Move History (PGN)", font=("Arial", 10, "bold")).pack(anchor=tk.W, pady=(5, 2))
+        tk.Label(info_frame, text="Move History (PGN)", font=("Times New Roman", 10, "bold")).pack(anchor=tk.W, pady=(5, 2))
         self.history_label = tk.Label(info_frame, text="", font=("Courier", 8), justify=tk.LEFT, wraplength=220)
         self.history_label.pack(anchor=tk.NW, pady=(0, 10))
 
-        tk.Label(info_frame, text="Position Status", font=("Arial", 10, "bold")).pack(anchor=tk.W, pady=(5, 2))
+        tk.Label(info_frame, text="Position Status", font=("Times New Roman", 10, "bold")).pack(anchor=tk.W, pady=(5, 2))
         self.status_label = tk.Label(info_frame, text="", justify=tk.LEFT, font=("Courier", 9))
         self.status_label.pack(anchor=tk.NW, pady=(0, 10))
 
-        tk.Label(info_frame, text="Material Evaluation", font=("Arial", 10, "bold")).pack(anchor=tk.W, pady=(5, 2))
+        tk.Label(info_frame, text="Material Evaluation", font=("Times New Roman", 10, "bold")).pack(anchor=tk.W, pady=(5, 2))
         self.eval_label = tk.Label(info_frame, text="", font=("Courier", 10, "bold"))
         self.eval_label.pack(anchor=tk.W, pady=(0, 10))
 
         # Legal moves section
-        tk.Label(info_frame, text="Legal Moves (SAN)", font=("Arial", 10, "bold")).pack(anchor=tk.W, pady=(5, 2))
+        tk.Label(info_frame, text="Legal Moves (SAN)", font=("Times New Roman", 10, "bold")).pack(anchor=tk.W, pady=(5, 2))
         
         moves_scroll = tk.Scrollbar(info_frame)
         moves_scroll.pack(side=tk.RIGHT, fill=tk.Y)
@@ -197,22 +200,22 @@ class ChessWorkbenchApp:
         planning_frame = tk.Frame(right_frame, relief=tk.SUNKEN, bd=1)
         planning_frame.pack(side=tk.BOTTOM, fill=tk.BOTH, expand=True, padx=5, pady=(10, 0))
 
-        tk.Label(planning_frame, text="PLANNING (Automated)", font=("Arial", 10, "bold")).pack(anchor=tk.W, pady=(5, 5), padx=5)
+        tk.Label(planning_frame, text="PLANNING (Automated)", font=("Times New Roman", 10, "bold")).pack(anchor=tk.W, pady=(5, 5), padx=5)
 
         # Planning controls
         controls_subframe = tk.Frame(planning_frame)
         controls_subframe.pack(anchor=tk.W, fill=tk.X, padx=5, pady=5)
 
         # Depth
-        tk.Label(controls_subframe, text="Depth (ply):", font=("Arial", 9)).pack(side=tk.LEFT, padx=(0, 5))
-        self.depth_spinbox = tk.Spinbox(controls_subframe, from_=1, to=6, width=3, font=("Arial", 9))
+        tk.Label(controls_subframe, text="Depth (ply):", font=("Times New Roman", 9)).pack(side=tk.LEFT, padx=(0, 5))
+        self.depth_spinbox = tk.Spinbox(controls_subframe, from_=1, to=6, width=3, font=("Times New Roman", 9))
         self.depth_spinbox.delete(0, tk.END)
         self.depth_spinbox.insert(0, "4")
         self.depth_spinbox.pack(side=tk.LEFT, padx=(0, 15))
 
         # Top K
-        tk.Label(controls_subframe, text="Top K:", font=("Arial", 9)).pack(side=tk.LEFT, padx=(0, 5))
-        self.topk_spinbox = tk.Spinbox(controls_subframe, from_=1, to=20, width=3, font=("Arial", 9))
+        tk.Label(controls_subframe, text="Top K:", font=("Times New Roman", 9)).pack(side=tk.LEFT, padx=(0, 5))
+        self.topk_spinbox = tk.Spinbox(controls_subframe, from_=1, to=20, width=3, font=("Times New Roman", 9))
         self.topk_spinbox.delete(0, tk.END)
         self.topk_spinbox.insert(0, "5")
         self.topk_spinbox.pack(side=tk.LEFT, padx=(0, 15))
@@ -221,15 +224,15 @@ class ChessWorkbenchApp:
         branching_subframe.pack(anchor=tk.W, fill=tk.X, padx=5, pady=5)
 
         # Our branching
-        tk.Label(branching_subframe, text="Our Branch:", font=("Arial", 9)).pack(side=tk.LEFT, padx=(0, 5))
-        self.our_branch_spinbox = tk.Spinbox(branching_subframe, from_=1, to=20, width=3, font=("Arial", 9))
+        tk.Label(branching_subframe, text="Our Branch:", font=("Times New Roman", 9)).pack(side=tk.LEFT, padx=(0, 5))
+        self.our_branch_spinbox = tk.Spinbox(branching_subframe, from_=1, to=20, width=3, font=("Times New Roman", 9))
         self.our_branch_spinbox.delete(0, tk.END)
         self.our_branch_spinbox.insert(0, "6")
         self.our_branch_spinbox.pack(side=tk.LEFT, padx=(0, 15))
 
         # Opp branching
-        tk.Label(branching_subframe, text="Opp Branch:", font=("Arial", 9)).pack(side=tk.LEFT, padx=(0, 5))
-        self.opp_branch_spinbox = tk.Spinbox(branching_subframe, from_=1, to=20, width=3, font=("Arial", 9))
+        tk.Label(branching_subframe, text="Opp Branch:", font=("Times New Roman", 9)).pack(side=tk.LEFT, padx=(0, 5))
+        self.opp_branch_spinbox = tk.Spinbox(branching_subframe, from_=1, to=20, width=3, font=("Times New Roman", 9))
         self.opp_branch_spinbox.delete(0, tk.END)
         self.opp_branch_spinbox.insert(0, "4")
         self.opp_branch_spinbox.pack(side=tk.LEFT, padx=(0, 0))
@@ -239,7 +242,7 @@ class ChessWorkbenchApp:
             planning_frame,
             text="Generate Plans",
             command=self._generate_plans,
-            font=("Arial", 10, "bold"),
+            font=("Times New Roman", 10, "bold"),
             bg="#4CAF50",
             fg="white",
             width=20,
@@ -264,9 +267,92 @@ class ChessWorkbenchApp:
         preview_frame = tk.Frame(planning_frame)
         preview_frame.pack(anchor=tk.W, fill=tk.X, padx=5, pady=(5, 5))
 
-        tk.Label(preview_frame, text="Plan Preview:", font=("Arial", 9, "bold")).pack(anchor=tk.W)
+        tk.Label(preview_frame, text="Plan Preview:", font=("Times New Roman", 9, "bold")).pack(anchor=tk.W)
         self.preview_label = tk.Label(preview_frame, text="", font=("Courier", 8), justify=tk.LEFT)
         self.preview_label.pack(anchor=tk.NW)
+
+        # -- SECTION 4: Probabilistic Inference Panel --
+        prob_frame = tk.Frame(planning_frame, relief=tk.GROOVE, bd=1)
+        prob_frame.pack(anchor=tk.W, fill=tk.BOTH, expand=True, padx=5, pady=(6, 5))
+
+        tk.Label(
+            prob_frame,
+            text="Probabilistic Inference",
+            font=("Times New Roman", 10, "bold"),
+        ).pack(anchor=tk.W, padx=5, pady=(5, 4))
+
+        prob_controls_1 = tk.Frame(prob_frame)
+        prob_controls_1.pack(anchor=tk.W, fill=tk.X, padx=5, pady=(0, 3))
+
+        tk.Label(prob_controls_1, text="Candidate Top N:", font=("Times New Roman", 9)).pack(side=tk.LEFT, padx=(0, 4))
+        self.prob_topn_spinbox = tk.Spinbox(prob_controls_1, from_=1, to=30, width=4, font=("Times New Roman", 9))
+        self.prob_topn_spinbox.delete(0, tk.END)
+        self.prob_topn_spinbox.insert(0, "8")
+        self.prob_topn_spinbox.pack(side=tk.LEFT, padx=(0, 10))
+
+        tk.Label(prob_controls_1, text="Simulations:", font=("Times New Roman", 9)).pack(side=tk.LEFT, padx=(0, 4))
+        self.prob_sim_spinbox = tk.Spinbox(prob_controls_1, from_=1, to=500, width=5, font=("Times New Roman", 9))
+        self.prob_sim_spinbox.delete(0, tk.END)
+        self.prob_sim_spinbox.insert(0, "50")
+        self.prob_sim_spinbox.pack(side=tk.LEFT, padx=(0, 10))
+
+        tk.Label(prob_controls_1, text="Horizon:", font=("Times New Roman", 9)).pack(side=tk.LEFT, padx=(0, 4))
+        self.prob_horizon_spinbox = tk.Spinbox(prob_controls_1, from_=1, to=12, width=4, font=("Times New Roman", 9))
+        self.prob_horizon_spinbox.delete(0, tk.END)
+        self.prob_horizon_spinbox.insert(0, "4")
+        self.prob_horizon_spinbox.pack(side=tk.LEFT, padx=(0, 0))
+
+        prob_controls_2 = tk.Frame(prob_frame)
+        prob_controls_2.pack(anchor=tk.W, fill=tk.X, padx=5, pady=(0, 5))
+
+        tk.Label(prob_controls_2, text="Opp Top K:", font=("Times New Roman", 9)).pack(side=tk.LEFT, padx=(0, 4))
+        self.prob_opp_topk_spinbox = tk.Spinbox(prob_controls_2, from_=1, to=10, width=4, font=("Times New Roman", 9))
+        self.prob_opp_topk_spinbox.delete(0, tk.END)
+        self.prob_opp_topk_spinbox.insert(0, "3")
+        self.prob_opp_topk_spinbox.pack(side=tk.LEFT, padx=(0, 10))
+
+        tk.Label(prob_controls_2, text="Success Threshold (pawns):", font=("Times New Roman", 9)).pack(side=tk.LEFT, padx=(0, 4))
+        self.prob_threshold_spinbox = tk.Spinbox(
+            prob_controls_2,
+            from_=-5.0,
+            to=5.0,
+            increment=0.1,
+            width=5,
+            font=("Times New Roman", 9),
+        )
+        self.prob_threshold_spinbox.delete(0, tk.END)
+        self.prob_threshold_spinbox.insert(0, "0.5")
+        self.prob_threshold_spinbox.pack(side=tk.LEFT, padx=(0, 0))
+
+        tk.Button(
+            prob_frame,
+            text="Estimate Move Success",
+            command=self._estimate_move_success,
+            font=("Times New Roman", 10, "bold"),
+            bg="#2a6fbe",
+            fg="white",
+            width=24,
+        ).pack(anchor=tk.W, padx=5, pady=(0, 5))
+
+        prob_results_frame = tk.Frame(prob_frame)
+        prob_results_frame.pack(anchor=tk.W, fill=tk.BOTH, expand=True, padx=5, pady=(0, 5))
+
+        prob_scroll = tk.Scrollbar(prob_results_frame)
+        prob_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self.prob_listbox = tk.Listbox(
+            prob_results_frame,
+            height=8,
+            width=64,
+            yscrollcommand=prob_scroll.set,
+            font=("Courier", 8),
+        )
+        self.prob_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.prob_listbox.bind("<<ListboxSelect>>", self._on_prob_result_selected)
+        prob_scroll.config(command=self.prob_listbox.yview)
+
+        self.prob_preview_label = tk.Label(prob_frame, text="", font=("Courier", 8), justify=tk.LEFT)
+        self.prob_preview_label.pack(anchor=tk.NW, padx=5, pady=(0, 5))
 
     def _on_canvas_click(self, event: tk.Event) -> None:
         """Handle click on board canvas."""
@@ -451,6 +537,97 @@ class ChessWorkbenchApp:
             logger.error(f"Error previewing plan: {e}")
             self.preview_label.config(text=f"Error: {e}")
 
+    def _estimate_move_success(self) -> None:
+        """Estimate success probabilities for top candidate first moves."""
+        try:
+            top_n = int(self.prob_topn_spinbox.get())
+            simulations = int(self.prob_sim_spinbox.get())
+            horizon = int(self.prob_horizon_spinbox.get())
+            opponent_top_k = int(self.prob_opp_topk_spinbox.get())
+            success_threshold = float(self.prob_threshold_spinbox.get())
+        except ValueError as e:
+            messagebox.showerror("Input Error", f"Invalid probabilistic parameters: {e}")
+            return
+
+        try:
+            start = time.time()
+            logger.info(
+                "Estimate Move Success requested: candidate_top_n=%d, simulations=%d, horizon=%d, opponent_top_k=%d, success_threshold=%+.2f",
+                top_n,
+                simulations,
+                horizon,
+                opponent_top_k,
+                success_threshold,
+            )
+
+            self.current_prob_results = estimate_first_move_successes(
+                board=self.model.board,
+                evaluator=self.evaluator,
+                horizon=horizon,
+                top_k=top_n,
+                opponent_top_k=opponent_top_k,
+                simulations=simulations,
+                success_threshold=success_threshold,
+            )
+
+            self.prob_listbox.delete(0, tk.END)
+            for idx, result in enumerate(self.current_prob_results, start=1):
+                row = (
+                    f"{idx}. {result.san:<6} | P(success)={result.success_prob:.2f} "
+                    f"| avg_delta={result.avg_delta:+.1f} | avg_leaf={result.avg_leaf_score:+.1f}"
+                )
+                self.prob_listbox.insert(tk.END, row)
+
+            elapsed = time.time() - start
+            if self.current_prob_results:
+                best = self.current_prob_results[0]
+                logger.info(
+                    "Probabilistic panel complete: candidate_moves=%d, simulations_per_move=%d, runtime=%.2fs, best=%s P=%.2f",
+                    len(self.current_prob_results),
+                    simulations,
+                    elapsed,
+                    best.san,
+                    best.success_prob,
+                )
+            else:
+                logger.info(
+                    "Probabilistic panel complete: candidate_moves=0, simulations_per_move=%d, runtime=%.2fs",
+                    simulations,
+                    elapsed,
+                )
+
+            self.prob_preview_label.config(text="")
+        except Exception as e:
+            logger.error(f"Probabilistic inference error: {e}")
+            messagebox.showerror("Inference Error", f"Probabilistic inference failed: {e}")
+
+    def _on_prob_result_selected(self, event: tk.Event) -> None:
+        """Preview selected probabilistic first move on a copied board."""
+        selection = self.prob_listbox.curselection()
+        if not selection:
+            return
+
+        idx = selection[0]
+        if idx >= len(self.current_prob_results):
+            return
+
+        result = self.current_prob_results[idx]
+        preview_board = self.model.board.copy(stack=True)
+
+        try:
+            move = chess.Move.from_uci(result.uci)
+            san = preview_board.san(move)
+            preview_board.push(move)
+            immediate_eval_cp = self.evaluator.evaluate(preview_board)
+
+            preview_text = f"Preview move: {san} ({result.uci})\n"
+            preview_text += f"Resulting FEN:\n{preview_board.fen()}\n"
+            preview_text += f"Immediate eval (White perspective): {immediate_eval_cp:+.0f} cp"
+            self.prob_preview_label.config(text=preview_text)
+        except Exception as e:
+            logger.error(f"Error previewing probabilistic move: {e}")
+            self.prob_preview_label.config(text=f"Error: {e}")
+
     def _refresh_all(self) -> None:
         """Refresh all UI elements."""
         self._refresh_board()
@@ -461,6 +638,11 @@ class ChessWorkbenchApp:
         self._refresh_opening()
         self.fen_input.delete(0, tk.END)
         self.fen_input.insert(0, self.model.get_board_fen())
+        self.current_prob_results = []
+        if hasattr(self, "prob_listbox"):
+            self.prob_listbox.delete(0, tk.END)
+        if hasattr(self, "prob_preview_label"):
+            self.prob_preview_label.config(text="")
 
     def _refresh_board(self) -> None:
         """Redraw the chess board with PNG assets or unicode fallback."""
@@ -507,7 +689,7 @@ class ChessWorkbenchApp:
                             x1 + self.SQUARE_SIZE // 2,
                             y1 + self.SQUARE_SIZE // 2,
                             text=symbol,
-                            font=("Arial", 48, "bold"),
+                            font=("Times New Roman", 48, "bold"),
                             fill=fg,
                         )
                     else:
@@ -540,7 +722,7 @@ class ChessWorkbenchApp:
                 i * self.SQUARE_SIZE + self.SQUARE_SIZE // 2,
                 self.SQUARE_SIZE * self.BOARD_SIZE + 12,
                 text=file_char,
-                font=("Arial", 11, "bold"),
+                font=("Times New Roman", 11, "bold"),
                 fill="#666",
             )
             rank_char = str(8 - i)
@@ -548,7 +730,7 @@ class ChessWorkbenchApp:
                 -12,
                 i * self.SQUARE_SIZE + self.SQUARE_SIZE // 2,
                 text=rank_char,
-                font=("Arial", 11, "bold"),
+                font=("Times New Roman", 11, "bold"),
                 fill="#666",
             )
 
