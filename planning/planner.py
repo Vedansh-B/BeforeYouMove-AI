@@ -1,7 +1,7 @@
 """Automated planning: bounded-horizon search with heuristic move ordering."""
 
 import chess
-from typing import List, Tuple, Optional
+from typing import List, Optional
 from dataclasses import dataclass
 import time
 import logging

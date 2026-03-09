@@ -107,8 +107,12 @@ BeforeYouMove-AI/
 |-- chess_model.py
 |-- chess_ui.py
 |-- eval_material.py
-|-- planning.py
-|-- probabilistic.py
+|-- planning/
+|   |-- __init__.py
+|   `-- planner.py
+|-- probabilistic/
+|   |-- __init__.py
+|   `-- inference.py
 |-- main.py
 |-- requirements.txt
 `-- README.md
@@ -119,10 +123,10 @@ BeforeYouMove-AI/
 ### `eval_material.py`
 - Evaluator returns centipawns from **White** perspective.
 
-### `planning.py`
+### `planning/`
 - Provides heuristic move ordering and ranked multi-ply plan generation.
 
-### `probabilistic.py`
+### `probabilistic/`
 - `MoveProbResult` dataclass for per-first-move estimates.
 - `estimate_first_move_successes(...)` main API.
 - `sample_strong_opponent_reply(...)` top-K weighted opponent sampling.
