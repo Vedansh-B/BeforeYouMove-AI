@@ -6,6 +6,7 @@ from chess_model import ChessModel
 from eval_material import MaterialEvaluator
 from planning import plan_current_position
 from probabilistic import estimate_first_move_successes
+from deep_learning.infer import load_model, evaluate_board
 import chess
 import logging
 import os
@@ -55,6 +56,9 @@ class ChessWorkbenchApp:
 
         self.model = ChessModel()
         self.evaluator = MaterialEvaluator()
+        self.neural_model = None
+        self.neural_status = "missing"
+        self._init_neural_model()
         
         self.selected_square = None
         self.legal_destinations = set()
@@ -185,6 +189,12 @@ class ChessWorkbenchApp:
         tk.Label(info_frame, text="Material Evaluation", font=("Times New Roman", 10, "bold")).pack(anchor=tk.W, pady=(5, 2))
         self.eval_label = tk.Label(info_frame, text="", font=("Courier", 10, "bold"))
         self.eval_label.pack(anchor=tk.W, pady=(0, 10))
+
+        tk.Label(info_frame, text="Neural Evaluation", font=("Times New Roman", 10, "bold")).pack(anchor=tk.W, pady=(5, 2))
+        self.neural_eval_label = tk.Label(info_frame, text="Neural Evaluation: unavailable", font=("Courier", 9, "bold"))
+        self.neural_eval_label.pack(anchor=tk.W, pady=(0, 2))
+        self.neural_status_label = tk.Label(info_frame, text="Model Status: missing", font=("Courier", 9))
+        self.neural_status_label.pack(anchor=tk.W, pady=(0, 10))
 
         # Legal moves section
         tk.Label(info_frame, text="Legal Moves (SAN)", font=("Times New Roman", 10, "bold")).pack(anchor=tk.W, pady=(5, 2))
@@ -763,6 +773,37 @@ class ChessWorkbenchApp:
             self.eval_label.config(text=f"Black +{-score:.0f} cp", fg="#387e3f")
         else:
             self.eval_label.config(text="Balanced", fg="#555")
+
+        # Neural evaluation (model loaded once and reused)
+        if self.neural_model is None:
+            self.neural_eval_label.config(text="Neural Evaluation: unavailable", fg="#555")
+            self.neural_status_label.config(text=f"Model Status: {self.neural_status}", fg="#555")
+            return
+
+        try:
+            neural_value = evaluate_board(self.model.board, self.neural_model)
+            self.neural_eval_label.config(text=f"Neural Evaluation: {neural_value:+.3f}", fg="#387e3f")
+            self.neural_status_label.config(text="Model Status: loaded", fg="#387e3f")
+        except Exception as e:
+            logger.error(f"Neural evaluation error: {e}")
+            self.neural_eval_label.config(text="Neural Evaluation: unavailable", fg="#555")
+            self.neural_status = "error"
+            self.neural_status_label.config(text="Model Status: error", fg="#b22222")
+
+    def _init_neural_model(self) -> None:
+        """Load neural model once at startup and cache for future inference."""
+        try:
+            self.neural_model = load_model("deep_learning/chess_value_model.pt")
+            self.neural_status = "loaded"
+            logger.info("Neural model loaded: deep_learning/chess_value_model.pt")
+        except FileNotFoundError:
+            self.neural_model = None
+            self.neural_status = "missing"
+            logger.warning("Neural model missing: deep_learning/chess_value_model.pt")
+        except Exception as e:
+            self.neural_model = None
+            self.neural_status = "error"
+            logger.error(f"Failed to load neural model: {e}")
 
     def _refresh_moves(self) -> None:
         """Update legal moves listbox (SAN)."""
