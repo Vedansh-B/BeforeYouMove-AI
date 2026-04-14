@@ -29,6 +29,7 @@ class MoveProbResult:
     avg_leaf_score: float
     avg_delta: float
     simulations: int
+    target_score: float
 
 
 def _to_root_perspective(raw_eval_cp: float, root_turn: bool) -> float:
@@ -185,8 +186,12 @@ def estimate_first_move_successes(
     Estimate P(success | first_move = m, strong_opponent) for top-N first moves.
 
     Success definition:
-        leaf_score_root - root_score_root >= success_threshold
+        leaf_score_root >= best_candidate_expected_score - success_threshold
     with scores measured in pawns.
+
+    This makes "success" mean "stays within a user-chosen margin of the best
+    candidate line found", so the metric still behaves sensibly even in
+    positions where every move worsens the evaluation.
     """
     start = time.time()
     root_turn = board.turn
@@ -208,13 +213,12 @@ def estimate_first_move_successes(
         success_threshold,
     )
 
-    results: List[MoveProbResult] = []
+    move_rollouts: List[tuple[chess.Move, str, List[float]]] = []
     safe_simulations = max(1, simulations)
 
     for first_move in candidate_moves:
         first_san = board.san(first_move)
         leaf_scores: List[float] = []
-        success_count = 0
 
         for _ in range(safe_simulations):
             leaf_score = run_rollout_after_first_move(
@@ -226,10 +230,20 @@ def estimate_first_move_successes(
                 root_turn=root_turn,
             )
             leaf_scores.append(leaf_score)
-            if (leaf_score - root_score) >= success_threshold:
-                success_count += 1
 
-        avg_leaf = sum(leaf_scores) / len(leaf_scores)
+        move_rollouts.append((first_move, first_san, leaf_scores))
+
+    if not move_rollouts:
+        logger.info("Probabilistic inference done in %.2fs | no legal candidates", time.time() - start)
+        return []
+
+    avg_leafs = [sum(leaf_scores) / len(leaf_scores) for _, _, leaf_scores in move_rollouts]
+    best_expected_score = max(avg_leafs)
+
+    results: List[MoveProbResult] = []
+    for (first_move, first_san, leaf_scores), avg_leaf in zip(move_rollouts, avg_leafs):
+        target_score = best_expected_score - success_threshold
+        success_count = sum(1 for leaf_score in leaf_scores if leaf_score >= target_score)
         avg_delta = avg_leaf - root_score
         success_prob = success_count / len(leaf_scores)
 
@@ -241,6 +255,7 @@ def estimate_first_move_successes(
                 avg_leaf_score=avg_leaf,
                 avg_delta=avg_delta,
                 simulations=len(leaf_scores),
+                target_score=target_score,
             )
         )
 

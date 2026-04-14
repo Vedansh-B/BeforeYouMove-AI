@@ -37,6 +37,12 @@ class ChessWorkbenchApp:
     HIGHLIGHT_COLOR = "#baca44"
     LEGAL_MOVE_DOT_COLOR = "#5b5b5b"
     LAST_MOVE_COLOR = "#baca4460"  # Semi-transparent (won't work in tkinter, fallback to solid)
+    ACTION_BUTTON_STYLE = {
+        "relief": tk.RAISED,
+        "bd": 2,
+        "activeforeground": "white",
+        "cursor": "hand2",
+    }
 
     # Unicode pieces fallback
     PIECES = {
@@ -248,13 +254,11 @@ class ChessWorkbenchApp:
         self.opp_branch_spinbox.pack(side=tk.LEFT, padx=(0, 0))
 
         # Generate Plans button
-        tk.Button(
+        self._make_action_button(
             planning_frame,
             text="Generate Plans",
             command=self._generate_plans,
-            font=("Times New Roman", 10, "bold"),
             bg="#4CAF50",
-            fg="white",
             width=20,
         ).pack(anchor=tk.W, padx=5, pady=5)
 
@@ -321,7 +325,7 @@ class ChessWorkbenchApp:
         self.prob_opp_topk_spinbox.insert(0, "3")
         self.prob_opp_topk_spinbox.pack(side=tk.LEFT, padx=(0, 10))
 
-        tk.Label(prob_controls_2, text="Success Threshold (pawns):", font=("Times New Roman", 9)).pack(side=tk.LEFT, padx=(0, 4))
+        tk.Label(prob_controls_2, text="Near-Best Margin (pawns):", font=("Times New Roman", 9)).pack(side=tk.LEFT, padx=(0, 4))
         self.prob_threshold_spinbox = tk.Spinbox(
             prob_controls_2,
             from_=-5.0,
@@ -334,13 +338,11 @@ class ChessWorkbenchApp:
         self.prob_threshold_spinbox.insert(0, "0.5")
         self.prob_threshold_spinbox.pack(side=tk.LEFT, padx=(0, 0))
 
-        tk.Button(
+        self._make_action_button(
             prob_frame,
             text="Estimate Move Success",
             command=self._estimate_move_success,
-            font=("Times New Roman", 10, "bold"),
             bg="#2a6fbe",
-            fg="white",
             width=24,
         ).pack(anchor=tk.W, padx=5, pady=(0, 5))
 
@@ -502,7 +504,7 @@ class ChessWorkbenchApp:
             # Populate listbox
             self.plans_listbox.delete(0, tk.END)
             for plan in self.current_plans:
-                display_text = f"{plan.rank}. {plan.san_line} | leaf={plan.leaf_eval:+.0f} | Δ={plan.delta:+.0f}"
+                display_text = f"{plan.rank}. {plan.san_line} | leaf={plan.leaf_eval:+.0f} | d={plan.delta:+.0f}"
                 self.plans_listbox.insert(tk.END, display_text)
 
             logger.info(f"Generated {len(self.current_plans)} plans")
@@ -562,7 +564,7 @@ class ChessWorkbenchApp:
         try:
             start = time.time()
             logger.info(
-                "Estimate Move Success requested: candidate_top_n=%d, simulations=%d, horizon=%d, opponent_top_k=%d, success_threshold=%+.2f",
+                "Estimate Move Success requested: candidate_top_n=%d, simulations=%d, horizon=%d, opponent_top_k=%d, best_move_margin=%+.2f",
                 top_n,
                 simulations,
                 horizon,
@@ -583,7 +585,7 @@ class ChessWorkbenchApp:
             self.prob_listbox.delete(0, tk.END)
             for idx, result in enumerate(self.current_prob_results, start=1):
                 row = (
-                    f"{idx}. {result.san:<6} | P(success)={result.success_prob:.2f} "
+                    f"{idx}. {result.san:<6} | P(near-best)={result.success_prob:.2f} "
                     f"| avg_delta={result.avg_delta:+.1f} | avg_leaf={result.avg_leaf_score:+.1f}"
                 )
                 self.prob_listbox.insert(tk.END, row)
@@ -632,7 +634,11 @@ class ChessWorkbenchApp:
 
             preview_text = f"Preview move: {san} ({result.uci})\n"
             preview_text += f"Resulting FEN:\n{preview_board.fen()}\n"
-            preview_text += f"Immediate eval (White perspective): {immediate_eval_cp:+.0f} cp"
+            preview_text += f"Immediate eval (White perspective): {immediate_eval_cp:+.0f} cp\n"
+            preview_text += (
+                f"Estimated P(near-best): {result.success_prob:.2f} "
+                f"(target >= {result.target_score:+.2f} pawns)"
+            )
             self.prob_preview_label.config(text=preview_text)
         except Exception as e:
             logger.error(f"Error previewing probabilistic move: {e}")
@@ -804,6 +810,21 @@ class ChessWorkbenchApp:
             self.neural_model = None
             self.neural_status = "error"
             logger.error(f"Failed to load neural model: {e}")
+
+    def _make_action_button(self, parent, text: str, command, bg: str, width: int) -> tk.Button:
+        """Create a consistently styled action button with visible text on all themes."""
+        return tk.Button(
+            parent,
+            text=text,
+            command=command,
+            font=("Times New Roman", 10, "bold"),
+            bg=bg,
+            fg="white",
+            activebackground=bg,
+            highlightbackground=bg,
+            width=width,
+            **self.ACTION_BUTTON_STYLE,
+        )
 
     def _refresh_moves(self) -> None:
         """Update legal moves listbox (SAN)."""

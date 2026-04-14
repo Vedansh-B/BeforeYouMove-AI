@@ -144,9 +144,9 @@ class Planner:
                 )
             ]
 
-        # Choose branching limit based on depth parity
-        # (simplified: use same limit for both)
-        branching_limit = our_branching
+        # Use side-aware branching so opponent replies are not searched
+        # with the same width as our own turns.
+        branching_limit = our_branching if board.turn == is_white_root else opp_branching
 
         candidate_moves = self._get_sorted_moves(board, evaluator, limit=branching_limit)
 

@@ -81,6 +81,51 @@ def generate_random_positions(num_positions: int) -> List[chess.Board]:
     return positions
 
 
+def generate_engine_guided_positions(
+    num_positions: int,
+    engine: chess.engine.SimpleEngine,
+    depth: int,
+) -> List[chess.Board]:
+    """
+    Generate positions from short self-play where each move is sampled from
+    one of the engine's strongest candidates instead of uniform random play.
+    """
+    positions: List[chess.Board] = []
+
+    while len(positions) < num_positions:
+        board = chess.Board()
+        target_plies = random.randint(8, 80)
+
+        for ply in range(target_plies):
+            if board.is_game_over():
+                break
+
+            info = engine.analyse(board, chess.engine.Limit(depth=max(1, depth // 2)), multipv=3)
+            if isinstance(info, dict):
+                info = [info]
+
+            candidate_moves = []
+            for line in info:
+                pv = line.get("pv") or []
+                if pv:
+                    candidate_moves.append(pv[0])
+
+            if not candidate_moves:
+                legal_moves = list(board.legal_moves)
+                if not legal_moves:
+                    break
+                candidate_moves = legal_moves
+
+            board.push(random.choice(candidate_moves))
+
+            if ply >= 4 and not board.is_game_over():
+                positions.append(board.copy(stack=False))
+                if len(positions) >= num_positions:
+                    break
+
+    return positions
+
+
 def generate_positions_from_pgn(pgn_path: str, num_positions: int) -> List[chess.Board]:
     """Sample positions from PGN games."""
     positions: List[chess.Board] = []
@@ -144,7 +189,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output_csv", type=str, required=True, help="Output CSV path.")
     parser.add_argument("--num_positions", type=int, required=True, help="Number of positions to generate.")
     parser.add_argument("--stockfish_path", type=str, required=True, help="Path to local Stockfish binary.")
-    parser.add_argument("--mode", type=str, choices=["random", "pgn"], required=True, help="Position source mode.")
+    parser.add_argument(
+        "--mode",
+        type=str,
+        choices=["random", "pgn", "engine", "mixed"],
+        required=True,
+        help="Position source mode.",
+    )
     parser.add_argument("--pgn_path", type=str, default=None, help="PGN file path (required in pgn mode).")
     parser.add_argument("--depth", type=int, default=8, help="Engine analysis depth.")
     return parser.parse_args()
@@ -172,25 +223,37 @@ def main() -> None:
         args.depth,
     )
 
-    if args.mode == "random":
-        positions = generate_random_positions(args.num_positions)
-    else:
-        positions = generate_positions_from_pgn(args.pgn_path, args.num_positions)
-        if len(positions) < args.num_positions:
-            logger.warning(
-                "PGN yielded %d positions (< requested %d).",
-                len(positions),
-                args.num_positions,
-            )
-
-    if not positions:
-        raise RuntimeError("No positions generated. Check mode inputs.")
-
     progress_every = max(1, min(100, args.num_positions // 10 or 1))
 
     engine: Optional[chess.engine.SimpleEngine] = None
     try:
         engine = chess.engine.SimpleEngine.popen_uci(args.stockfish_path)
+        if args.mode == "random":
+            positions = generate_random_positions(args.num_positions)
+        elif args.mode == "engine":
+            positions = generate_engine_guided_positions(args.num_positions, engine, args.depth)
+        elif args.mode == "pgn":
+            positions = generate_positions_from_pgn(args.pgn_path, args.num_positions)
+            if len(positions) < args.num_positions:
+                logger.warning(
+                    "PGN yielded %d positions (< requested %d).",
+                    len(positions),
+                    args.num_positions,
+                )
+        else:
+            random_count = args.num_positions // 3
+            engine_count = args.num_positions // 3
+            pgn_count = args.num_positions - random_count - engine_count
+            positions = generate_random_positions(random_count)
+            positions.extend(generate_engine_guided_positions(engine_count, engine, args.depth))
+            if args.pgn_path:
+                positions.extend(generate_positions_from_pgn(args.pgn_path, pgn_count))
+            else:
+                positions.extend(generate_random_positions(pgn_count))
+
+        if not positions:
+            raise RuntimeError("No positions generated. Check mode inputs.")
+
         rows = label_positions(
             positions=positions[: args.num_positions],
             engine=engine,

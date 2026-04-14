@@ -21,10 +21,11 @@ def train_one_epoch(model, loader, optimizer, criterion, device: torch.device) -
     model.train()
     running_loss = 0.0
     count = 0
-    for x, y in loader:
+    for x, features, y in loader:
         x = x.to(device)
+        features = features.to(device)
         y = y.to(device)
-        pred = model(x)
+        pred = model(x, features)
         loss = criterion(pred, y)
 
         optimizer.zero_grad()
@@ -43,10 +44,11 @@ def evaluate(model, loader, criterion, device: torch.device) -> float:
     model.eval()
     running_loss = 0.0
     count = 0
-    for x, y in loader:
+    for x, features, y in loader:
         x = x.to(device)
+        features = features.to(device)
         y = y.to(device)
-        pred = model(x)
+        pred = model(x, features)
         loss = criterion(pred, y)
         batch_size = x.size(0)
         running_loss += loss.item() * batch_size
@@ -58,12 +60,24 @@ def evaluate(model, loader, criterion, device: torch.device) -> float:
 def main():
     parser = argparse.ArgumentParser(description="Train chess value model.")
     parser.add_argument("--csv", type=str, required=True, help="Path to CSV with columns: fen,eval")
+    parser.add_argument(
+        "--extra_csvs",
+        nargs="*",
+        default=[],
+        help="Optional additional CSV files to concatenate into the training set.",
+    )
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument(
+        "--augment_mirror",
+        action="store_true",
+        help="Duplicate each sample with a horizontal mirror to increase data volume.",
+    )
     args = parser.parse_args()
 
-    dataset = ChessEvalDataset(args.csv)
+    csv_paths = [args.csv, *args.extra_csvs]
+    dataset = ChessEvalDataset(csv_paths, augment_mirror=args.augment_mirror)
     n_total = len(dataset)
     if n_total < 2:
         raise ValueError("Need at least 2 rows for train/validation split.")
@@ -82,9 +96,11 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = ChessValueCNN().to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-    criterion = nn.MSELoss()
+    criterion = nn.SmoothL1Loss(beta=0.5)
 
     print(f"Device: {device}")
+    print(f"Training CSVs: {csv_paths}")
+    print(f"Mirror augmentation: {args.augment_mirror}")
     print(f"Train size: {len(train_ds)}, Val size: {len(val_ds)}")
 
     for epoch in range(1, args.epochs + 1):
