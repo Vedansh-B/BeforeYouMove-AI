@@ -54,7 +54,7 @@ Interactive chess workbench with automated planning, probabilistic first-move in
 pip install -r requirements.txt
 ```
 
-Installs: `python-chess`, `Pillow`
+Installs: `python-chess`, `Pillow`, `torch`
 
 ### Run
 ```bash
@@ -187,7 +187,8 @@ The model now learns from:
 
 ## Development Notes
 
-- No external engine dependency (no Stockfish).
+- No external engine dependency is required to run the app itself.
+- Stockfish is only needed for optional dataset generation and neural-model retraining.
 - SAN is primary user-facing notation.
 - Rollouts use safe board copies and push/pop patterns to avoid board corruption.
 - Runs with `python main.py`.
